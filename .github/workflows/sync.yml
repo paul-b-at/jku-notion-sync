@@ -4,7 +4,7 @@ on:
   schedule:
     # Daily at 06:00 UTC = 08:00 Vienna (summer) / 07:00 Vienna (winter)
     - cron: '0 6 * * *'
-  workflow_dispatch:        # lets you trigger manually from GitHub UI
+  workflow_dispatch:
 
 jobs:
   sync:
@@ -32,11 +32,11 @@ jobs:
 
       - name: Run sync
         env:
-          JKU_USER: $ secrets.JKU_USER 
-          JKU_PASS: $ secrets.JKU_PASS 
-          NOTION_TOKEN: $ secrets.NOTION_TOKEN 
-          NOTION_DEADLINES_DB: $ secrets.NOTION_DEADLINES_DB 
-          NOTION_SUBJECTS_DB: $ secrets.NOTION_SUBJECTS_DB 
+          JKU_USER: ${{ secrets.JKU_USER }}
+          JKU_PASS: ${{ secrets.JKU_PASS }}
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DEADLINES_DB: ${{ secrets.NOTION_DEADLINES_DB }}
+          NOTION_SUBJECTS_DB: ${{ secrets.NOTION_SUBJECTS_DB }}
         run: bun run src/index.ts
 
       - name: Save Playwright session
@@ -44,4 +44,4 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .session
-          key: jku-session-v1-$ github.run_id 
+          key: jku-session-v1-${{ github.run_id }}
