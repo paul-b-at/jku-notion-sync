@@ -1,0 +1,47 @@
+name: JKU Sync
+
+on:
+  schedule:
+    # Daily at 06:00 UTC = 08:00 Vienna (summer) / 07:00 Vienna (winter)
+    - cron: '0 6 * * *'
+  workflow_dispatch:        # lets you trigger manually from GitHub UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Restore Playwright session
+        uses: actions/cache@v4
+        with:
+          path: .session
+          key: jku-session-v1
+
+      - name: Install Chromium for Playwright
+        run: bunx playwright install --with-deps chromium
+
+      - name: Run sync
+        env:
+          JKU_USER: $ secrets.JKU_USER 
+          JKU_PASS: $ secrets.JKU_PASS 
+          NOTION_TOKEN: $ secrets.NOTION_TOKEN 
+          NOTION_DEADLINES_DB: $ secrets.NOTION_DEADLINES_DB 
+          NOTION_SUBJECTS_DB: $ secrets.NOTION_SUBJECTS_DB 
+        run: bun run src/index.ts
+
+      - name: Save Playwright session
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .session
+          key: jku-session-v1-$ github.run_id 
