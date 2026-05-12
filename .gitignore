@@ -1,6 +1,7 @@
 node_modules/
 .session/
 debug.json
+debug-exams.json
 .env
 .env.local
 *.log

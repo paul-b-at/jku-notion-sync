@@ -37,6 +37,7 @@ jobs:
           NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
           NOTION_DEADLINES_DB: ${{ secrets.NOTION_DEADLINES_DB }}
           NOTION_SUBJECTS_DB: ${{ secrets.NOTION_SUBJECTS_DB }}
+          NOTION_EXAMS_DB: ${{ secrets.NOTION_EXAMS_DB }}
         run: bun run src/index.ts
 
       - name: Save Playwright session

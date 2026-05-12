@@ -10,15 +10,42 @@ const SUBJECTS_DB = Bun.env.NOTION_SUBJECTS_DB!
 /** Map of normalized course number → Notion Subject page info */
 export type SubjectMap = Map<string, { id: string; name: string }>
 
+/** Course nr + normalized subject name lookups for assignments and exams. */
+export type SubjectContext = {
+	byCourseNr: SubjectMap
+	/** Lowercased trimmed name → subject; last DB row wins on duplicate names. */
+	byNormalizedName: Map<string, { id: string; name: string }>
+}
+
 /** Strip dots, dashes, whitespace so "366.594" === "366594" */
-function normalizeCourseNr(s: string | undefined | null): string | null {
+export function normalizeCourseNr(s: string | undefined | null): string | null {
 	if (!s) return null
 	const cleaned = s.replace(/[.\s-]/g, '')
 	return cleaned.length > 0 ? cleaned : null
 }
 
-export async function loadSubjectMap(): Promise<SubjectMap> {
-	const map: SubjectMap = new Map()
+function normalizeSubjectName(s: string): string {
+	return s.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+/** Prefer course number from JKU; fall back to exact Notion subject name match (normalized). */
+export function resolveSubjectForExam(
+	exam: { courseName: string; courseNr?: string | null },
+	ctx: SubjectContext,
+): { id: string; name: string } | undefined {
+	const n = normalizeCourseNr(exam.courseNr)
+	if (n) {
+		const byNr = ctx.byCourseNr.get(n)
+		if (byNr) return byNr
+	}
+	const key = normalizeSubjectName(exam.courseName)
+	if (!key) return undefined
+	return ctx.byNormalizedName.get(key)
+}
+
+export async function loadSubjectMap(): Promise<SubjectContext> {
+	const byCourseNr: SubjectMap = new Map()
+	const byNormalizedName = new Map<string, { id: string; name: string }>()
 	let cursor: string | undefined
 
 	do {
@@ -34,19 +61,22 @@ export async function loadSubjectMap(): Promise<SubjectMap> {
 			const vlNr = normalizeCourseNr(props['Course Number']?.rich_text?.[0]?.plain_text)
 			const ueNr = normalizeCourseNr(props['UE Course Number']?.rich_text?.[0]?.plain_text)
 
-			if (vlNr) map.set(vlNr, { id: page.id, name })
-			if (ueNr) map.set(ueNr, { id: page.id, name })
+			if (vlNr) byCourseNr.set(vlNr, { id: page.id, name })
+			if (ueNr) byCourseNr.set(ueNr, { id: page.id, name })
+
+			const nk = normalizeSubjectName(name)
+			if (nk) byNormalizedName.set(nk, { id: page.id, name })
 		}
 
 		cursor = res.has_more ? res.next_cursor ?? undefined : undefined
 	} while (cursor)
 
-	return map
+	return { byCourseNr, byNormalizedName }
 }
 
 export async function upsertAssignment(
 	a: JkuAssignment,
-	subjects: SubjectMap,
+	subjects: SubjectContext,
 	dryRun: boolean,
 ): Promise<'created' | 'updated'> {
 	const existing = await notion.databases.query({
@@ -54,7 +84,7 @@ export async function upsertAssignment(
 		filter: { property: 'JKU ID', rich_text: { equals: a.id } },
 	})
 
-	const subject = subjects.get(normalizeCourseNr(a.courseNr) ?? '')
+	const subject = subjects.byCourseNr.get(normalizeCourseNr(a.courseNr) ?? '')
 	const properties: any = {
 		'Name': { title: [{ text: { content: a.title } }] },
 		'JKU ID': { rich_text: [{ text: { content: a.id } }] },
@@ -76,8 +106,10 @@ export async function upsertAssignment(
 		return 'created'
 	} else {
 		if (dryRun) return 'updated'
+		const page = existing.results[0]
+		if (!page) return 'updated'
 		await notion.pages.update({
-			page_id: existing.results[0].id,
+			page_id: page.id,
 			properties,
 		})
 		return 'updated'
