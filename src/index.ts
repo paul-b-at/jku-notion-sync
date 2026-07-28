@@ -16,7 +16,9 @@ const debug = process.argv.includes('--debug')
 console.log(dryRun ? '🧪 DRY RUN — no Notion writes\n' : '🚀 Live run\n')
 
 if (!Bun.env.NOTION_EXAMS_DB) {
-	throw new Error('NOTION_EXAMS_DB is not set — add the Exams database id (see PLAN.md)')
+	throw new Error(
+		'NOTION_EXAMS_DB is not set — add your Notion Exams database ID (32-char hex from the database URL) to .env',
+	)
 }
 
 console.log('🔗 Loading Subject map from Notion...')
