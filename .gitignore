@@ -1,5 +1,6 @@
 node_modules/
 .session/
+.cursor/
 debug.json
 debug-exams.json
 .env
