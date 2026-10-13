@@ -1,5 +1,5 @@
 import type { BrowserContext } from 'playwright'
-import { MoodleSession, currentSemester, courseNumbers, normalizeCourseNumber, type MoodleCourse, type MoodleEvent } from './moodle'
+import { MoodleSession, currentSemester, courseNumbers, normalizeCourseNumber, selectSemesterCourses, type MoodleCourse, type MoodleEvent } from './moodle'
 import type { JkuAssignment } from './jku'
 
 export function canonicalActivityUrl(raw: string): string | null {
@@ -33,8 +33,7 @@ export function eventToTask(e: MoodleEvent, course: MoodleCourse): JkuAssignment
 /** Complete calendar supplements the action feed (completed/closed items can disappear from the latter). */
 export async function fetchMoodleTasksFromSession(session: MoodleSession, now = new Date()): Promise<JkuAssignment[]> {
   const semester = currentSemester(now)
-  const courses = (await session.courses()).filter(c => (c.shortname + ' ' + c.fullname).includes(semester))
-  if (!courses.length) throw new Error(`No enrolled Moodle courses for ${semester}; refusing silent empty success`)
+  const courses = selectSemesterCourses(await session.courses(), semester)
   const byId = new Map(courses.map(c => [c.id, c]))
   const from = Math.floor(now.getTime() / 1000) - 30 * 86400
   const toDate = new Date(now); toDate.setUTCMonth(toDate.getUTCMonth() + 4)
