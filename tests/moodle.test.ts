@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { MoodleSession, courseNumbers, currentSemester, parseEpisodeScript, collectCalendarEvents, selectSemesterCourses, courseSemesterLabels, isAuthenticatedMoodleState } from '../src/moodle'
+import { MoodleSession, courseNumbers, currentSemester, parseEpisodeScript, collectCalendarEvents, selectSemesterCourses, courseSemesterLabels, isAuthenticatedMoodleState, waitForMoodleSignIn } from '../src/moodle'
 
 describe('Moodle shared adapter', () => {
   test('JKU calendar transitions use Vienna, including UTC boundary', () => {
@@ -97,4 +97,51 @@ test('guest session with missing workflow credentials fails before course discov
     if (originalUser === undefined) delete process.env.JKU_USER; else process.env.JKU_USER = originalUser
     if (originalPass === undefined) delete process.env.JKU_PASS; else process.env.JKU_PASS = originalPass
   }
+})
+
+test('reused Moodle SSO session succeeds without a username form', async () => {
+  const page = { url: () => 'https://moodle.jku.at/my/', evaluate: async () => ({ hasSessionKey: true, userId: 200, hasLoginLink: false }), locator: () => { throw new Error('Must not wait for a nonexistent form after SSO') } }
+  expect(await waitForMoodleSignIn(page as any, true, 0)).toBe('authenticated')
+})
+test('Shibboleth credential form remains supported for a fresh session', async () => {
+  const page = { url: () => 'https://shibboleth.im.jku.at/idp/profile/SAML2/Redirect/SSO?execution=private', locator: () => ({ first: () => ({ isVisible: async () => true }) }) }
+  expect(await waitForMoodleSignIn(page as any, true, 0)).toBe('credentials')
+})
+test('post-submit waiting never treats the remaining login form as success', async () => {
+  const page = { url: () => 'https://shibboleth.im.jku.at/idp/profile/SAML2/Redirect/SSO', locator: () => { throw new Error('No resubmission or form interaction allowed') } }
+  await expect(waitForMoodleSignIn(page as any, false, 0)).rejects.toThrow('did not reach')
+})
+test('Moodle open skips credential filling when myJKU SSO redirects back automatically', async () => {
+  const originalUser = process.env.JKU_USER, originalPass = process.env.JKU_PASS
+  process.env.JKU_USER = 'test-fixture'; process.env.JKU_PASS = 'test-fixture-not-a-real-password'
+  let signedIn = false, fills = 0
+  const page = {
+    goto: async (url: string) => { if (url.endsWith('/login/index.php')) signedIn = true },
+    url: () => 'https://moodle.jku.at/my/',
+    evaluate: async () => signedIn ? { hasSessionKey: true, userId: 200, hasLoginLink: false } : { hasSessionKey: true, userId: 1, hasLoginLink: true },
+    locator: () => ({ first: () => ({ fill: async () => { fills++ }, isVisible: async () => false }) }),
+    close: async () => {},
+  }
+  try {
+    expect((await MoodleSession.open({ newPage: async () => page } as any)).page).toBe(page as any)
+    expect(fills).toBe(0)
+  } finally {
+    if (originalUser === undefined) delete process.env.JKU_USER; else process.env.JKU_USER = originalUser
+    if (originalPass === undefined) delete process.env.JKU_PASS; else process.env.JKU_PASS = originalPass
+  }
+})
+
+test('SSO diagnostic errors never include provider URL queries or raw exception text', async () => {
+  const page = {
+    goto: async () => { throw new Error('sensitive-provider-error execution=DO_NOT_LOG') },
+    url: () => 'https://shibboleth.im.jku.at/idp/profile/SAML2/Redirect/SSO?execution=DO_NOT_LOG',
+    evaluate: async () => ({ hasSessionKey: false, userId: 0, hasLoginLink: false }),
+    locator: () => ({ first: () => ({ isVisible: async () => false }) }), close: async () => {},
+  }
+  let message = ''
+  try { await MoodleSession.open({ newPage: async () => page } as any) } catch (e) { message = (e as Error).message }
+  expect(message).toContain('open-moodle')
+  expect(message).toContain('host=shibboleth.im.jku.at')
+  expect(message).not.toContain('DO_NOT_LOG')
+  expect(message).not.toContain('sensitive-provider-error')
 })

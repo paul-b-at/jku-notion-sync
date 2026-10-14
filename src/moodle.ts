@@ -112,38 +112,82 @@ function readMoodleAuthState(): MoodleAuthState {
 }
 class MissingMoodleCredentialsError extends Error {}
 
+/** A reused Shibboleth session can skip the credential form entirely. */
+export async function waitForMoodleSignIn(page: Page, allowCredentials: boolean, timeoutMs = 60_000): Promise<'authenticated' | 'credentials'> {
+  const deadline = Date.now() + timeoutMs
+  do {
+    try {
+      if (new URL(page.url()).origin === MOODLE && isAuthenticatedMoodleState(await page.evaluate(readMoodleAuthState))) return 'authenticated'
+      if (allowCredentials) {
+        const username = page.locator('#username, input[name="j_username"]').first()
+        const password = page.locator('#password, input[name="j_password"]').first()
+        if (await username.isVisible() && await password.isVisible()) return 'credentials'
+      }
+    } catch {
+      // The execution context can disappear during SAML redirects. Do not resubmit credentials.
+    }
+    if (Date.now() >= deadline) break
+    await new Promise(resolve => setTimeout(resolve, 150))
+  } while (Date.now() < deadline)
+  throw new Error('Moodle sign-in did not reach an authenticated session or an available credential form')
+}
+
+async function safeMoodleSignInDiagnostics(page: Page): Promise<string> {
+  let host = 'unknown'
+  try {
+    const hostname = new URL(page.url()).hostname
+    host = ['moodle.jku.at', 'my.jku.at', 'shibboleth.im.jku.at'].includes(hostname) ? hostname : 'other'
+  } catch { /* No raw URL in diagnostics. */ }
+  let account = 'unknown', form = false
+  try {
+    const state = await page.evaluate(readMoodleAuthState)
+    account = isAuthenticatedMoodleState(state) ? 'authenticated' : state.userId === 1 ? 'guest' : 'unauthenticated'
+    form = await page.locator('#username, input[name="j_username"]').first().isVisible()
+  } catch { /* Navigation may still be in progress. */ }
+  return `host=${host}, state=${account}, credential_form=${form}`
+}
+
 export class MoodleSession {
   constructor(readonly page: Page) {}
   get context(): BrowserContext { return this.page.context() }
 
   static async open(context: BrowserContext): Promise<MoodleSession> {
     const page = await context.newPage()
+    let stage = 'open-moodle'
     try {
       await page.goto(`${MOODLE}/my/`, { waitUntil: 'domcontentloaded' })
-      const ready = async () => isAuthenticatedMoodleState(await page.evaluate(readMoodleAuthState))
-      if (!page.url().startsWith(MOODLE) || !(await ready())) {
+      const ready = async () => {
+        try { return new URL(page.url()).origin === MOODLE && isAuthenticatedMoodleState(await page.evaluate(readMoodleAuthState)) }
+        catch { return false } // SAML may replace the execution context during this probe.
+      }
+      if (!(await ready())) {
         const user = process.env.JKU_USER?.trim(), pass = process.env.JKU_PASS
         if (!user || !pass) {
           const missing = [!user ? 'JKU_USER' : null, !pass ? 'JKU_PASS' : null].filter(Boolean).join(', ')
           throw new MissingMoodleCredentialsError(`Missing Moodle sign-in environment variables: ${missing}. Add the repository Actions secrets AND map them into the Run pipeline step's env. MEDIA_SESSION_COOKIE does not authenticate Moodle.`)
         }
+        stage = 'start-moodle-sso'
         await page.goto(`${MOODLE}/login/index.php`, { waitUntil: 'domcontentloaded' })
-        const username = page.locator('#username, input[name="j_username"]').first()
-        await username.waitFor({ state: 'visible', timeout: 30_000 })
-        await username.fill(user)
-        await page.locator('#password, input[name="j_password"]').first().fill(pass)
-        const noRemember = page.locator('#donotcache')
-        if (await noRemember.isVisible()) await noRemember.uncheck()
-        await page.locator('button[name="_eventId_proceed"], button[type="submit"], input[type="submit"]').first().click()
-        await page.waitForURL(`${MOODLE}/**`, { timeout: 60_000, waitUntil: 'domcontentloaded' })
+        stage = 'await-sso-or-form'
+        const result = await waitForMoodleSignIn(page, true, 60_000)
+        if (result === 'credentials') {
+          stage = 'submit-credentials'
+          await page.locator('#username, input[name="j_username"]').first().fill(user)
+          await page.locator('#password, input[name="j_password"]').first().fill(pass)
+          const noRemember = page.locator('#donotcache')
+          if (await noRemember.isVisible()) await noRemember.uncheck()
+          await page.locator('button[name="_eventId_proceed"], button[type="submit"], input[type="submit"]').first().click()
+          stage = 'await-authenticated-moodle'
+          await waitForMoodleSignIn(page, false, 60_000)
+        }
       }
-      if (!(await ready())) throw new Error('Moodle returned a guest or unauthenticated page after sign-in')
       return new MoodleSession(page)
     } catch (error) {
+      if (error instanceof MissingMoodleCredentialsError) { await page.close(); throw error }
+      const diagnostic = await safeMoodleSignInDiagnostics(page)
       await page.close()
-      if (error instanceof MissingMoodleCredentialsError) throw error
-      // Do not include Playwright errors: they can contain SAML/session-bearing URLs.
-      throw new Error('Moodle sign-in failed: verify JKU secrets and any MFA requirement. No fallback to an empty success; security requirements must not be bypassed.')
+      // Keep stage/host/state flags, never the raw Playwright error, SAML URL, account name or session key.
+      throw new Error(`Moodle sign-in failed at ${stage} (${diagnostic}). Check the SSO handoff, credentials or interactive MFA requirement; no credential retry or empty-success fallback was attempted.`)
     }
   }
 
