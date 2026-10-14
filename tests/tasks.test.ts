@@ -15,9 +15,11 @@ test('quiz opening is not mistaken for a deadline; closing is imported', () => {
   expect(eventToTask({ ...event, modulename: 'quiz', eventtype: 'open' }, course)).toBeNull()
   expect(eventToTask({ ...event, modulename: 'quiz', eventtype: 'close' }, course)!.id).toBe('moodle:quiz:13858012:close')
 })
-test('Crosses and feedback included; meetings excluded', () => {
+test('Crosses included; all feedback/survey forms and meetings excluded', () => {
   expect(eventToTask({ ...event, modulename: 'checkmark' }, course)).not.toBeNull()
-  expect(eventToTask({ ...event, modulename: 'feedback', eventtype: 'close' }, course)).not.toBeNull()
+  expect(eventToTask({ ...event, modulename: 'feedback', eventtype: 'close' }, course)).toBeNull()
+  expect(eventToTask({ ...event, modulename: 'survey', eventtype: 'close' }, course)).toBeNull()
+  expect(eventToTask({ ...event, modulename: 'questionnaire', eventtype: 'due' }, course)).toBeNull()
   expect(eventToTask({ ...event, modulename: 'zoom', eventtype: 'zoom' }, course)).toBeNull()
 })
 test('invalid or off-site activity URLs cannot become task links', () => {
@@ -47,4 +49,12 @@ test('monthly calendar supplements absent action events; no deletion/completion 
   const tasks = await fetchMoodleTasksFromSession(fake as any, new Date('2026-10-13T13:00:00Z'))
   expect(tasks.length).toBe(1)
   expect(tasks[0]!.id).toBe('13858012')
+})
+
+test('survey and sheet-feedback events are filtered from both action and monthly feeds', async () => {
+  const survey = { ...event, id: event.id + 1, modulename: 'survey', eventtype: 'close', activityname: 'Course survey' }
+  const feedback = { ...event, id: event.id + 2, modulename: 'feedback', eventtype: 'close', activityname: 'Sheet_1_Feedback' }
+  const fake = { courses: async () => [course], actionEvents: async () => [survey, feedback], monthlyEvents: async () => [event, survey, feedback] }
+  const tasks = await fetchMoodleTasksFromSession(fake as any, new Date('2026-10-13T13:00:00Z'))
+  expect(tasks.map(t => t.id)).toEqual(['13858012'])
 })

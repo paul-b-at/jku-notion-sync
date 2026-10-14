@@ -13,7 +13,8 @@ export function canonicalActivityUrl(raw: string): string | null {
 }
 
 export function eventToTask(e: MoodleEvent, course: MoodleCourse): JkuAssignment | null {
-  if (!['assign', 'quiz', 'checkmark', 'feedback', 'lesson', 'workshop'].includes(e.modulename)) return null
+  // Feedback/survey forms (including sheet follow-ups) are deliberately outside the task sync.
+  if (!['assign', 'quiz', 'checkmark', 'lesson', 'workshop'].includes(e.modulename)) return null
   // Open times and Zoom sessions are not deadlines. Never invent a close time for an undated quiz.
   if (!['due', 'close', 'submissionend', 'assessmentend'].includes(e.eventtype)) return null
   const url = canonicalActivityUrl(e.url ?? e.action?.url ?? '')
