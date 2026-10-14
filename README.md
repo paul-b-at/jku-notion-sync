@@ -1,5 +1,8 @@
 # jku-notion-sync
 
+> **Moodle-first update:** scheduled discovery now uses an authenticated Moodle session. See [rollout and preview instructions](docs/moodle-rollout.md) before activation. The legacy media/myJKU paths below remain available only as explicit rollback options.
+
+
 Daily sync that pulls **JKU Moodle assignment deadlines** and **registered exams** into **Notion** databases. Runs on a GitHub Actions cron so deadlines and exam dates show up without opening Moodle.
 
 Stack: **Bun** + **TypeScript** + **Playwright**.

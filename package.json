@@ -5,6 +5,7 @@
   "private": true,
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/luxon": "^3.7.6",
     "@types/node": "^25.6.0"
   },
   "peerDependencies": {
@@ -14,5 +15,9 @@
     "@notionhq/client": "^2.2.15",
     "luxon": "^3.7.2",
     "playwright": "^1.59.1"
+  },
+  "scripts": {
+    "test": "bun test",
+    "check": "tsc --noEmit"
   }
 }

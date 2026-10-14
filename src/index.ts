@@ -1,11 +1,12 @@
 // src/index.ts
 import { getAuthedContext } from './auth'
 import { fetchAssignments } from './jku'
+import { fetchMoodleTasks } from './moodle-tasks'
 import { fetchExams } from './exams'
 import {
 	loadSubjectMap,
-	normalizeCourseNr,
 	resolveSubjectForExam,
+	resolveSubjectForTask,
 	upsertAssignment,
 } from './notion'
 import { pruneCancelledExams, upsertExam } from './notionExams'
@@ -26,53 +27,59 @@ const subjects = await loadSubjectMap()
 console.log(`   Mapped ${subjects.byCourseNr.size} course numbers\n`)
 
 const ctx = await getAuthedContext()
-const assignments = await fetchAssignments(ctx)
-console.log(`📚 Found ${assignments.length} assignments`)
+try {
+	const source = process.env.TASK_SOURCE?.trim() || 'moodle'
+	if (!['moodle', 'myjku'].includes(source)) throw new Error('TASK_SOURCE must be moodle or myjku')
+	const assignments = source === 'moodle' ? await fetchMoodleTasks(ctx) : await fetchAssignments(ctx)
+	console.log(`📚 Found ${assignments.length} deadline tasks`)
 
-let created = 0,
-	updated = 0,
-	unmatched = 0
+	let created = 0,
+		updated = 0,
+		unmatched = 0
 
-for (const a of assignments) {
-	const subject = subjects.byCourseNr.get(normalizeCourseNr(a.courseNr) ?? '')
-	const subjectLabel = subject ? `→ ${subject.name}` : '⚠️ no subject match'
-	console.log(`• ${a.title}  (${a.courseNr}) ${subjectLabel}`)
-	if (!subject) unmatched++
+	for (const a of assignments) {
+		const subject = resolveSubjectForTask(a, subjects)
+		const subjectLabel = subject ? `→ ${subject.name}` : '⚠️ no subject match'
+		console.log(`• ${a.title}  (${a.courseNr}) ${subjectLabel}`)
+		if (!subject) unmatched++
 
-	const result = await upsertAssignment(a, subjects, dryRun)
-	if (result === 'created') created++
-	if (result === 'updated') updated++
+		const result = await upsertAssignment(a, subjects, dryRun)
+		if (result === 'created') created++
+		if (result === 'updated') updated++
+	}
+
+	const exams = await fetchExams(ctx, { debug })
+
+
+	console.log(`\n📅 Found ${exams.length} upcoming exams`)
+
+	let examCreated = 0,
+		examUpdated = 0,
+		examUnmatched = 0
+
+	for (const e of exams) {
+		const resolved = resolveSubjectForExam(e, subjects)
+		const subjectLabel = resolved ? `→ ${resolved.name}` : '⚠️ no subject match'
+		console.log(`• ${e.courseName}  ${subjectLabel}`)
+		if (!resolved) examUnmatched++
+
+		const result = await upsertExam(e, subjects, dryRun)
+		if (result === 'created') examCreated++
+		if (result === 'updated') examUpdated++
+	}
+
+	const pruned = await pruneCancelledExams(
+		new Set(exams.map(e => e.id)),
+		dryRun,
+	)
+
+	console.log(
+		`\n✅ Done — tasks: created ${created}, updated ${updated}, unmatched subjects: ${unmatched}`,
+	)
+	console.log(
+		`   exams: created ${examCreated}, updated ${examUpdated}, unmatched subjects: ${examUnmatched}, pruned: ${pruned}${dryRun ? ' (dry-run)' : ''}`,
+	)
+	console.log(`✅ ${assignments.length} deadline tasks, ${exams.length} exams synced`)
+} finally {
+	await ctx.close()
 }
-
-const exams = await fetchExams(ctx, { debug })
-await ctx.close()
-
-console.log(`\n📅 Found ${exams.length} upcoming exams`)
-
-let examCreated = 0,
-	examUpdated = 0,
-	examUnmatched = 0
-
-for (const e of exams) {
-	const resolved = resolveSubjectForExam(e, subjects)
-	const subjectLabel = resolved ? `→ ${resolved.name}` : '⚠️ no subject match'
-	console.log(`• ${e.courseName}  ${subjectLabel}`)
-	if (!resolved) examUnmatched++
-
-	const result = await upsertExam(e, subjects, dryRun)
-	if (result === 'created') examCreated++
-	if (result === 'updated') examUpdated++
-}
-
-const pruned = await pruneCancelledExams(
-	new Set(exams.map(e => e.id)),
-	dryRun,
-)
-
-console.log(
-	`\n✅ Done — assignments: created ${created}, updated ${updated}, unmatched subjects: ${unmatched}`,
-)
-console.log(
-	`   exams: created ${examCreated}, updated ${examUpdated}, unmatched subjects: ${examUnmatched}, pruned: ${pruned}${dryRun ? ' (dry-run)' : ''}`,
-)
-console.log(`✅ ${assignments.length} assignments, ${exams.length} exams synced`)

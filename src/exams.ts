@@ -26,7 +26,7 @@ function collectRowsFromNestedArrays(node: unknown, acc: unknown[] = []): unknow
 			collectRowsFromNestedArrays(el, acc)
 		}
 	} else if (asRecord(node)) {
-		for (const v of Object.values(node)) collectRowsFromNestedArrays(v, acc)
+		for (const v of Object.values(node as Record<string, unknown>)) collectRowsFromNestedArrays(v, acc)
 	}
 	return acc
 }

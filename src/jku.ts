@@ -7,6 +7,8 @@ export type JkuAssignment = {
 	title: string
 	courseName: string
 	courseNr: string
+	courseNumbers?: string[]
+	semester?: string
 	dueAt: string          // ISO 8601 with timezone
 	moodleUrl: string
 	description: string
