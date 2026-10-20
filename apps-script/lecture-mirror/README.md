@@ -2,7 +2,7 @@
 
 Standalone **Google Apps Script**, stored in this repository but independent of the Bun/Playwright Moodle → Notion job. It reads the existing JKU subscription in Google Calendar and maintains a second calendar you own. Show that calendar in Notion Calendar, then add meeting links to the copied events.
 
-**Nothing runs until you install it and authorize it in your Google account.** The GitHub workflow added here runs mocked tests only; it does not sync calendars.
+**Nothing runs until you install it and authorize it in your Google account.** The optional GitHub workflow template runs mocked tests only; it does not sync calendars and is not installed automatically.
 
 ## Ownership and behavior
 
@@ -81,7 +81,7 @@ node --check < apps-script/lecture-mirror/Code.gs
 node --test apps-script/lecture-mirror/verify.cjs
 ```
 
-The harness uses Node's built-in test/VM modules to mock Apps Script's globals. Its filename intentionally avoids the existing Bun test-discovery patterns. `.github/workflows/calendar-mirror-check.yml` runs these checks independently; the Moodle sync workflow and dependencies are untouched.
+The harness uses Node's built-in test/VM modules to mock Apps Script's globals. Its filename intentionally avoids the existing Bun test-discovery patterns. The optional [`ci-workflow.yml`](./ci-workflow.yml) template can be copied to `.github/workflows/calendar-mirror-check.yml` by a user/integration permitted to edit Actions workflows. It is **not installed** by this change, so CI is not claimed as run. The Moodle sync workflow and dependencies are untouched.
 
 Mocks cover idempotency, links/conferencing preservation, reschedules, recurrence identities, UID-stable API-ID changes, all-day conversions, preview safety, calendar guards, source failures/empty feeds, cancellation grace/restoration, moved-outside-window lectures, manual deletion, pagination, batching and trigger isolation. A real Google authorization and pilot sync are still required before calling the integration live-tested.
 
