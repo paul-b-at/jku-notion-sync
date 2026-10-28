@@ -37,15 +37,21 @@ async function login(page: Page): Promise<void> {
 	const pass = Bun.env.JKU_PASS
 	if (!user || !pass) throw new Error('JKU_USER / JKU_PASS missing in .env')
 
-	await page.goto(JKU_BASE)
-	await page.waitForLoadState('domcontentloaded')
+	await page.goto(JKU_BASE, { waitUntil: 'domcontentloaded' })
 
-	// Shibboleth login form — selectors may need adjusting after first run
-	await page.fill('input[name="j_username"], #username', user)
-	await page.fill('input[name="j_password"], #password', pass)
-	await page.click('button[type="submit"], input[type="submit"]')
+	// JKU SSO redirects through Shibboleth to the access.jku.at login form.
+	const username = page.locator('#Ecom_User_ID')
+	await username.waitFor({ state: 'visible', timeout: 60_000 })
+	await username.fill(user)
+	await page.locator('#Ecom_Password').fill(pass)
 
-	// Wait until we're back on my.jku.at after the SSO bounce
-	await page.waitForURL('**/my.jku.at/**', { timeout: 30_000 })
+	// The login control is a span, not a native submit button.
+	await Promise.all([
+		page.waitForURL(url => url.hostname === 'my.jku.at', {
+			waitUntil: 'domcontentloaded',
+			timeout: 60_000,
+		}),
+		page.locator('#loginButton2').click(),
+	])
 	console.log('✅ Logged in')
 }
